@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Cat Hop Cloud</title>
+<style>
+body {
+    margin: 0;
+    padding: 0;
+    background: #87CEEB;
+    overflow: hidden;
+    font-family: monospace;
+}
+canvas {
+    display: block;
+    margin: 0 auto;
+}
+#info {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    color: #fff;
+    font-size: 18px;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+}
+</style>
+</head>
+<body>
+<div id="info">Luck: <span id="energy">100</span></div>
+<canvas id="c"></canvas>
+<script>
+// Game constants
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const energyDisplay = document.getElementById('energy');
+
+// Set canvas size
+canvas.width = 800;
+canvas.height = 600;
+
+// Game state
+let gameState = {
+    energy: 100,
+    position: 0,
+    clouds: [0, 0, 1, 0, 1, 1, 0, 0], // 0 = safe, 1 = thundercloud
+    numClouds: 8,
+    gameOver: false,
+    gameWon: false
+};
+
+// Cloud positions (circular arrangement)
+function getCloudPosition(index) {
+    const angle = (index * Math.PI * 2 / gameState.numClouds) - Math.PI / 2;
+    const radius = 200;
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    
+    return {
+        x: centerX + radius * Math.cos(angle),
+        y: centerY + radius * Math.sin(angle)
+    };
+}
+
+// Draw cloud
+function drawCloud(x, y, isThunder, number) {
+    // Cloud shape
+    ctx.save();
+    
+    if (isThunder) {
+        // Red thundercloud
+        ctx.fillStyle = '#FF4444';
+    } else {
+        // Purple safe cloud
+        ctx.fillStyle = '#CC88FF';
+    }
+    
+    // Simple cloud shape with circles
+    ctx.beginPath();
+    ctx.arc(x - 20, y, 20, 0, Math.PI * 2);
+    ctx.arc(x + 20, y, 20, 0, Math.PI * 2);
+    ctx.arc(x, y - 10, 25, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Cloud number
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 24px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(number, x, y);
+    
+    // Lightning symbol for thunderclouds
+    if (isThunder) {
+        ctx.strokeStyle = '#FFFF00';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x, y + 25);
+        ctx.lineTo(x - 5, y + 35);
+        ctx.lineTo(x + 5, y + 35);
+        ctx.lineTo(x, y + 45);
+        ctx.stroke();
+    }
+    
+    ctx.restore();
+}
+
+// Draw cat
+function drawCat(x, y) {
+    ctx.save();
+    ctx.fillStyle = '#000';
+    
+    // Body
+    ctx.fillRect(x - 10, y - 10, 20, 15);
+    
+    // Head
+    ctx.beginPath();
+    ctx.arc(x, y - 15, 8, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Ears
+    ctx.beginPath();
+    ctx.moveTo(x - 8, y - 18);
+    ctx.lineTo(x - 5, y - 25);
+    ctx.lineTo(x - 2, y - 18);
+    ctx.moveTo(x + 2, y - 18);
+    ctx.lineTo(x + 5, y - 25);
+    ctx.lineTo(x + 8, y - 18);
+    ctx.fill();
+    
+    // Tail
+    ctx.beginPath();
+    ctx.moveTo(x + 10, y);
+    ctx.quadraticCurveTo(x + 20, y - 10, x + 15, y - 20);
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    
+    ctx.restore();
+}
+
+// Jump to new cloud
+function jump(k) {
+    if (gameState.gameOver || gameState.gameWon) return;
+    
+    if (gameState.energy >= k) {
+        // Deduct energy for jump
+        gameState.energy -= k;
+        
+        // Move to new position (circular)
+        gameState.position = (gameState.position + k) % gameState.numClouds;
+        
+        // Check if landed on thundercloud
+        if (gameState.clouds[gameState.position] === 1) {
+            gameState.energy -= 2;
+        }
+        
+        // Update energy display
+        energyDisplay.textContent = gameState.energy;
+        
+        // Check win/lose conditions
+        if (gameState.position === 0 && gameState.energy > 0) {
+            gameState.gameWon = true;
+        } else if (gameState.energy <= 0) {
+            gameState.gameOver = true;
+        }
+        
+        draw();
+    }
+}
+
+// Handle keyboard input
+document.addEventListener('keydown', (e) => {
+    const key = e.key;
+    
+    // Number keys for jumping
+    if (key >= '1' && key <= '9') {
+        jump(parseInt(key));
+    }
+    
+    // Vim-style controls
+    switch(key) {
+        case 'h': // Hint - show optimal path
+            showHint();
+            break;
+        case 'r': // Reset game
+            resetGame();
+            break;
+    }
+});
+
+// Show hint (optimal path calculation)
+function showHint() {
+    // Simple hint: show which jumps are safe
+    console.log('Hint: Try to avoid red clouds!');
+}
+
+// Reset game
+function resetGame() {
+    gameState.energy = 100;
+    gameState.position = 0;
+    gameState.gameOver = false;
+    gameState.gameWon = false;
+    energyDisplay.textContent = gameState.energy;
+    draw();
+}
+
+// Main draw function
+function draw() {
+    // Clear canvas
+    ctx.fillStyle = '#87CEEB';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw all clouds
+    for (let i = 0; i < gameState.numClouds; i++) {
+        const pos = getCloudPosition(i);
+        drawCloud(pos.x, pos.y, gameState.clouds[i] === 1, i);
+    }
+    
+    // Draw cat at current position
+    const catPos = getCloudPosition(gameState.position);
+    drawCat(catPos.x, catPos.y);
+    
+    // Draw game status
+    if (gameState.gameWon) {
+        ctx.fillStyle = '#00FF00';
+        ctx.font = 'bold 48px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('You Win!', canvas.width / 2, canvas.height / 2);
+        ctx.font = '24px monospace';
+        ctx.fillText(`Final Luck: ${gameState.energy}`, canvas.width / 2, canvas.height / 2 + 40);
+    } else if (gameState.gameOver) {
+        ctx.fillStyle = '#FF0000';
+        ctx.font = 'bold 48px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Game Over!', canvas.width / 2, canvas.height / 2);
+        ctx.font = '24px monospace';
+        ctx.fillText('Out of luck!', canvas.width / 2, canvas.height / 2 + 40);
+    }
+    
+    // Draw instructions
+    ctx.fillStyle = '#000';
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('Press 1-9 to jump clouds | R to reset', 10, canvas.height - 10);
+}
+
+// Start game
+draw();
+</script>
+</body>
+</html>
