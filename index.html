@@ -80,7 +80,7 @@ canvas {
     <p><strong>Help your cat return home!</strong></p>
     <p>Your black cat is lost in the clouds and needs to use its luck energy to hop back to cloud 0.</p>
     
-    <div class="cloud-info" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+    <div class="cloud-info" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; font-size: 14px;">
         <div class="cloud-example">
             <span style="color: #A8E6CF;">●</span> Safe
         </div>
@@ -88,10 +88,16 @@ canvas {
             <span style="color: #FF6B9D;">●</span> Thunder (-2)
         </div>
         <div class="cloud-example">
-            <span style="color: #5ECFFF;">●</span> Wind (+1 jump)
+            <span style="color: #5ECFFF;">●</span> Wind (+1)
         </div>
         <div class="cloud-example">
             <span style="color: #FFE066;">●</span> Lucky (+5)
+        </div>
+        <div class="cloud-example">
+            <span style="color: #B19CD9;">●</span> Checkpoint
+        </div>
+        <div class="cloud-example">
+            <span style="color: #FF9F43;">●</span> One-way
         </div>
     </div>
     
@@ -101,7 +107,7 @@ canvas {
     📍 Press R to reset the game<br>
     💡 Press I to toggle instructions</p>
     
-    <p><strong>Goal:</strong> Jump around the circle and return to cloud 0 with luck remaining!</p>
+    <p><strong>Goal:</strong> Visit all checkpoints (!) then return to cloud 0 with luck remaining!</p>
     
     <div id="levelSelect" style="margin-top: 20px;">
         <h3>Select Level</h3>
@@ -126,36 +132,45 @@ canvas.height = 600;
 
 // Level definitions
 const levels = [
-    // Tutorial
+    // Tutorial - Simple introduction
     {c:[0,0,1,0,0,0], e:120, name:"Tutorial"},
-    // Easy
-    {c:[0,0,1,0,1,0,0,0], e:100, name:"First Steps"},
-    {c:[0,1,0,1,0,1,0,0], e:100, name:"Symmetry"},
-    // Medium
-    {c:[0,1,0,1,1,0,1,0,0], e:90, name:"Thunder Path"},
-    {c:[0,0,1,1,0,1,1,0,0,0], e:85, name:"Storm Clouds"},
-    // Hard
-    {c:[0,1,1,0,1,1,0,1,0,1,0], e:80, name:"Lightning Strike"},
-    {c:[0,1,0,1,1,1,0,1,1,0,1,0], e:75, name:"Thunder Maze"},
-    // Expert
-    {c:[0,1,1,1,0,1,1,1,0,1,1,0,1,0], e:70, name:"Storm Master"},
-    // Special levels with new cloud types
-    {c:[0,2,0,1,2,1,0,0], e:90, name:"Wind Walker"}, // 2 = wind cloud
-    {c:[0,1,3,1,0,1,3,0], e:85, name:"Lucky Cat"} // 3 = lucky cloud
+    
+    // Checkpoint introduction
+    {c:[0,0,4,1,0,0], e:100, checkpoints:[2], name:"First Checkpoint"},
+    {c:[0,1,0,4,0,1,4,0], e:90, checkpoints:[3,6], name:"Dual Checkpoints"},
+    
+    // Strategic routing required
+    {c:[0,4,1,1,4,3,0,1,0], e:85, checkpoints:[1,4], name:"Thunder Maze"},
+    {c:[0,1,4,0,1,4,1,0,4,0], e:80, checkpoints:[2,5,8], name:"Triple Challenge"},
+    
+    // Wind mechanics + checkpoints  
+    {c:[0,2,4,1,0,2,0], e:75, checkpoints:[2], name:"Wind Route"},
+    {c:[0,4,2,1,4,3,1,0], e:70, checkpoints:[1,4], name:"Wind Puzzle"},
+    
+    // One-way clouds
+    {c:[0,5,1,0,4,1,0], e:70, checkpoints:[4], name:"One Way Street"},
+    {c:[0,1,5,4,5,1,4,0,0], e:65, checkpoints:[3,6], name:"Arrow Maze"},
+    
+    // Master level - all mechanics
+    {c:[0,4,1,5,3,4,1,2,0,1], e:60, checkpoints:[1,5], name:"Grand Finale"}
 ];
 
 // Game state
 let gameState = {
     energy: 100,
     position: 0,
-    clouds: [0, 0, 1, 0, 1, 1, 0, 0], // 0 = safe, 1 = thunder, 2 = wind, 3 = lucky
+    clouds: [0, 0, 1, 0, 1, 1, 0, 0], // 0 = safe, 1 = thunder, 2 = wind, 3 = lucky, 4 = checkpoint, 5 = one-way
     numClouds: 8,
     gameOver: false,
     gameWon: false,
     showMenu: true,
     currentLevel: 0,
     windBoost: 0, // For wind cloud effect
-    moves: 0 // Track if player has moved
+    moves: 0, // Track if player has moved
+    visitedCheckpoints: new Set(), // Track visited checkpoints
+    requiredCheckpoints: new Set(), // Checkpoints needed for this level
+    turnCounter: 0, // Track turns for energy drain
+    oneWayJump: 0 // Forced jump from one-way cloud
 };
 
 // Load best scores from localStorage
@@ -209,6 +224,10 @@ function loadLevel(levelIndex) {
     gameState.gameWon = false;
     gameState.windBoost = 0;
     gameState.moves = 0;
+    gameState.turnCounter = 0;
+    gameState.oneWayJump = 0;
+    gameState.visitedCheckpoints = new Set();
+    gameState.requiredCheckpoints = new Set(level.checkpoints || []);
     
     return true;
 }
@@ -241,6 +260,12 @@ function drawCloud(x, y, cloudType, number) {
             break;
         case 3: // Lucky
             ctx.fillStyle = '#FFE066'; // Sunny yellow
+            break;
+        case 4: // Checkpoint
+            ctx.fillStyle = '#B19CD9'; // Purple
+            break;
+        case 5: // One-way
+            ctx.fillStyle = '#FF9F43'; // Orange
             break;
         default: // Safe
             ctx.fillStyle = '#A8E6CF'; // Mint green
@@ -280,6 +305,15 @@ function drawCloud(x, y, cloudType, number) {
         case 3: // Star for lucky
             ctx.fillStyle = '#FFF';
             ctx.fillText('★', x, y + 35);
+            break;
+        case 4: // Checkpoint
+            const visited = gameState.visitedCheckpoints.has(number);
+            ctx.fillStyle = visited ? '#00FF00' : '#FFF';
+            ctx.fillText(visited ? '✓' : '!', x, y + 35);
+            break;
+        case 5: // One-way arrow
+            ctx.fillStyle = '#FFF';
+            ctx.fillText('→', x, y + 35);
             break;
     }
     
@@ -323,13 +357,23 @@ function drawCat(x, y) {
 function jump(k) {
     if (gameState.gameOver || gameState.gameWon) return;
     
+    // Check if forced to use one-way jump
+    if (gameState.oneWayJump > 0) {
+        k = gameState.oneWayJump;
+        gameState.oneWayJump = 0;
+    }
+    
     // Apply wind boost if any
     const actualJump = k + gameState.windBoost;
     gameState.windBoost = 0; // Reset wind boost
     
     if (gameState.energy >= k) {
-        // Deduct energy for jump (original k, not boosted)
-        gameState.energy -= k;
+        // Increment turn counter and apply turn penalty
+        gameState.turnCounter += 1;
+        const turnPenalty = gameState.turnCounter > 5 ? 1 : 0;
+        
+        // Deduct energy for jump + turn penalty
+        gameState.energy -= (k + turnPenalty);
         gameState.moves += 1;
         
         // Move to new position (circular)
@@ -347,14 +391,23 @@ function jump(k) {
             case 3: // Lucky
                 gameState.energy += 5; // Bonus energy!
                 break;
+            case 4: // Checkpoint
+                gameState.visitedCheckpoints.add(gameState.position);
+                break;
+            case 5: // One-way
+                gameState.oneWayJump = 2; // Force next jump to be 2
+                break;
         }
         
         // Update energy display
         energyDisplay.textContent = gameState.energy;
         
         // Check win/lose conditions
-        // Win only if we've moved and returned to start
-        if (gameState.position === 0 && gameState.energy > 0 && gameState.moves > 1) {
+        const allCheckpointsVisited = [...gameState.requiredCheckpoints].every(
+            cp => gameState.visitedCheckpoints.has(cp)
+        );
+        
+        if (gameState.position === 0 && gameState.energy > 0 && gameState.moves > 1 && allCheckpointsVisited) {
             gameState.gameWon = true;
             saveScore(gameState.energy, gameState.currentLevel);
             unlockLevel(gameState.currentLevel + 1);
@@ -459,12 +512,37 @@ function draw() {
     ctx.textAlign = 'left';
     ctx.fillText('Press 1-9 to jump clouds | R to reset | I for instructions', 10, canvas.height - 10);
     
-    // Show wind boost indicator
+    // Show game status indicators
+    ctx.font = '16px monospace';
+    ctx.textAlign = 'right';
+    
+    // Turn counter with penalty warning
+    if (gameState.turnCounter > 5) {
+        ctx.fillStyle = '#FF6B9D';
+        ctx.fillText(`Turn: ${gameState.turnCounter} (+1 energy cost)`, canvas.width - 10, 60);
+    } else {
+        ctx.fillStyle = '#000';
+        ctx.fillText(`Turn: ${gameState.turnCounter}`, canvas.width - 10, 60);
+    }
+    
+    // Checkpoint progress
+    if (gameState.requiredCheckpoints.size > 0) {
+        const visited = gameState.visitedCheckpoints.size;
+        const total = gameState.requiredCheckpoints.size;
+        ctx.fillStyle = visited === total ? '#00FF00' : '#FF6B9D';
+        ctx.fillText(`Checkpoints: ${visited}/${total}`, canvas.width - 10, 85);
+    }
+    
+    // Wind boost indicator
     if (gameState.windBoost > 0) {
-        ctx.fillStyle = '#87CEEB';
-        ctx.font = 'bold 16px monospace';
-        ctx.textAlign = 'right';
-        ctx.fillText('Wind Boost Active! +1', canvas.width - 10, 30);
+        ctx.fillStyle = '#5ECFFF';
+        ctx.fillText('Wind Boost: +1', canvas.width - 10, 110);
+    }
+    
+    // One-way forced jump indicator
+    if (gameState.oneWayJump > 0) {
+        ctx.fillStyle = '#FF9F43';
+        ctx.fillText(`Next jump: ${gameState.oneWayJump}`, canvas.width - 10, 135);
     }
 }
 
