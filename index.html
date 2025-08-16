@@ -80,12 +80,18 @@ canvas {
     <p><strong>Help your cat return home!</strong></p>
     <p>Your black cat is lost in the clouds and needs to use its luck energy to hop back to cloud 0.</p>
     
-    <div class="cloud-info">
+    <div class="cloud-info" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
         <div class="cloud-example">
-            <span style="color: #CC88FF;">●</span> Safe clouds
+            <span style="color: #A8E6CF;">●</span> Safe
         </div>
         <div class="cloud-example">
-            <span style="color: #FF4444;">●</span> Thunder clouds (-2 luck)
+            <span style="color: #FF6B9D;">●</span> Thunder (-2)
+        </div>
+        <div class="cloud-example">
+            <span style="color: #5ECFFF;">●</span> Wind (+1 jump)
+        </div>
+        <div class="cloud-example">
+            <span style="color: #FFE066;">●</span> Lucky (+5)
         </div>
     </div>
     
@@ -95,14 +101,18 @@ canvas {
     📍 Press R to reset the game<br>
     💡 Press I to toggle instructions</p>
     
-    <p><strong>Goal:</strong> Return to cloud 0 with luck remaining!</p>
+    <p><strong>Goal:</strong> Jump around the circle and return to cloud 0 with luck remaining!</p>
     
-    <div id="scoreboard" style="margin-top: 20px;">
-        <h3>Best Scores</h3>
-        <div id="scoreList"></div>
+    <div id="levelSelect" style="margin-top: 20px;">
+        <h3>Select Level</h3>
+        <div id="levelGrid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 15px 0;"></div>
     </div>
     
-    <button onclick="startGame()">Start Game</button>
+    <div id="scoreboard" style="margin-top: 20px; display: none;">
+        <h3>Best Scores</h3>
+        <div id="scoreList"></div>
+        <button onclick="backToLevels()" style="margin-top: 10px;">Back to Levels</button>
+    </div>
 </div>
 <script>
 // Game constants
@@ -114,15 +124,38 @@ const energyDisplay = document.getElementById('energy');
 canvas.width = 800;
 canvas.height = 600;
 
+// Level definitions
+const levels = [
+    // Tutorial
+    {c:[0,0,1,0,0,0], e:120, name:"Tutorial"},
+    // Easy
+    {c:[0,0,1,0,1,0,0,0], e:100, name:"First Steps"},
+    {c:[0,1,0,1,0,1,0,0], e:100, name:"Symmetry"},
+    // Medium
+    {c:[0,1,0,1,1,0,1,0,0], e:90, name:"Thunder Path"},
+    {c:[0,0,1,1,0,1,1,0,0,0], e:85, name:"Storm Clouds"},
+    // Hard
+    {c:[0,1,1,0,1,1,0,1,0,1,0], e:80, name:"Lightning Strike"},
+    {c:[0,1,0,1,1,1,0,1,1,0,1,0], e:75, name:"Thunder Maze"},
+    // Expert
+    {c:[0,1,1,1,0,1,1,1,0,1,1,0,1,0], e:70, name:"Storm Master"},
+    // Special levels with new cloud types
+    {c:[0,2,0,1,2,1,0,0], e:90, name:"Wind Walker"}, // 2 = wind cloud
+    {c:[0,1,3,1,0,1,3,0], e:85, name:"Lucky Cat"} // 3 = lucky cloud
+];
+
 // Game state
 let gameState = {
     energy: 100,
     position: 0,
-    clouds: [0, 0, 1, 0, 1, 1, 0, 0], // 0 = safe, 1 = thundercloud
+    clouds: [0, 0, 1, 0, 1, 1, 0, 0], // 0 = safe, 1 = thunder, 2 = wind, 3 = lucky
     numClouds: 8,
     gameOver: false,
     gameWon: false,
-    showMenu: true
+    showMenu: true,
+    currentLevel: 0,
+    windBoost: 0, // For wind cloud effect
+    moves: 0 // Track if player has moved
 };
 
 // Load best scores from localStorage
@@ -131,18 +164,53 @@ function loadScores() {
     return saved ? JSON.parse(saved) : [];
 }
 
-// Save score
-function saveScore(score) {
-    let scores = loadScores();
-    scores.push({
+// Save score for specific level
+function saveScore(score, level) {
+    let allScores = JSON.parse(localStorage.getItem('catHopAllScores') || '{}');
+    if (!allScores[level]) allScores[level] = [];
+    
+    allScores[level].push({
         score: score,
         date: new Date().toLocaleDateString()
     });
-    // Keep only top 5 scores
-    scores.sort((a, b) => b.score - a.score);
-    scores = scores.slice(0, 5);
-    localStorage.setItem('catHopScores', JSON.stringify(scores));
-    return scores;
+    
+    // Keep only top 3 scores per level
+    allScores[level].sort((a, b) => b.score - a.score);
+    allScores[level] = allScores[level].slice(0, 3);
+    
+    localStorage.setItem('catHopAllScores', JSON.stringify(allScores));
+    return allScores[level];
+}
+
+// Get unlocked levels
+function getUnlockedLevels() {
+    return parseInt(localStorage.getItem('catHopUnlocked') || '0');
+}
+
+// Unlock next level
+function unlockLevel(level) {
+    const current = getUnlockedLevels();
+    if (level > current) {
+        localStorage.setItem('catHopUnlocked', level.toString());
+    }
+}
+
+// Load specific level
+function loadLevel(levelIndex) {
+    if (levelIndex >= levels.length) return false;
+    
+    const level = levels[levelIndex];
+    gameState.currentLevel = levelIndex;
+    gameState.clouds = [...level.c]; // Copy array
+    gameState.numClouds = level.c.length;
+    gameState.energy = level.e;
+    gameState.position = 0;
+    gameState.gameOver = false;
+    gameState.gameWon = false;
+    gameState.windBoost = 0;
+    gameState.moves = 0;
+    
+    return true;
 }
 
 // Cloud positions (circular arrangement)
@@ -159,16 +227,23 @@ function getCloudPosition(index) {
 }
 
 // Draw cloud
-function drawCloud(x, y, isThunder, number) {
+function drawCloud(x, y, cloudType, number) {
     // Cloud shape
     ctx.save();
     
-    if (isThunder) {
-        // Red thundercloud
-        ctx.fillStyle = '#FF4444';
-    } else {
-        // Purple safe cloud
-        ctx.fillStyle = '#CC88FF';
+    // Set color based on cloud type (summer palette)
+    switch(cloudType) {
+        case 1: // Thunder
+            ctx.fillStyle = '#FF6B9D'; // Bright pink
+            break;
+        case 2: // Wind
+            ctx.fillStyle = '#5ECFFF'; // Cyan blue
+            break;
+        case 3: // Lucky
+            ctx.fillStyle = '#FFE066'; // Sunny yellow
+            break;
+        default: // Safe
+            ctx.fillStyle = '#A8E6CF'; // Mint green
     }
     
     // Simple cloud shape with circles
@@ -185,16 +260,27 @@ function drawCloud(x, y, isThunder, number) {
     ctx.textBaseline = 'middle';
     ctx.fillText(number, x, y);
     
-    // Lightning symbol for thunderclouds
-    if (isThunder) {
-        ctx.strokeStyle = '#FFFF00';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(x, y + 25);
-        ctx.lineTo(x - 5, y + 35);
-        ctx.lineTo(x + 5, y + 35);
-        ctx.lineTo(x, y + 45);
-        ctx.stroke();
+    // Special symbols for cloud types
+    ctx.font = '16px monospace';
+    switch(cloudType) {
+        case 1: // Lightning for thunder
+            ctx.strokeStyle = '#FFFF00';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(x, y + 25);
+            ctx.lineTo(x - 5, y + 35);
+            ctx.lineTo(x + 5, y + 35);
+            ctx.lineTo(x, y + 45);
+            ctx.stroke();
+            break;
+        case 2: // Wind arrows
+            ctx.fillStyle = '#FFF';
+            ctx.fillText('≫', x, y + 35);
+            break;
+        case 3: // Star for lucky
+            ctx.fillStyle = '#FFF';
+            ctx.fillText('★', x, y + 35);
+            break;
     }
     
     ctx.restore();
@@ -237,25 +323,41 @@ function drawCat(x, y) {
 function jump(k) {
     if (gameState.gameOver || gameState.gameWon) return;
     
+    // Apply wind boost if any
+    const actualJump = k + gameState.windBoost;
+    gameState.windBoost = 0; // Reset wind boost
+    
     if (gameState.energy >= k) {
-        // Deduct energy for jump
+        // Deduct energy for jump (original k, not boosted)
         gameState.energy -= k;
+        gameState.moves += 1;
         
         // Move to new position (circular)
-        gameState.position = (gameState.position + k) % gameState.numClouds;
+        gameState.position = (gameState.position + actualJump) % gameState.numClouds;
         
-        // Check if landed on thundercloud
-        if (gameState.clouds[gameState.position] === 1) {
-            gameState.energy -= 2;
+        // Handle different cloud types
+        const cloudType = gameState.clouds[gameState.position];
+        switch(cloudType) {
+            case 1: // Thunder
+                gameState.energy -= 2;
+                break;
+            case 2: // Wind
+                gameState.windBoost = 1; // Next jump gets +1 distance
+                break;
+            case 3: // Lucky
+                gameState.energy += 5; // Bonus energy!
+                break;
         }
         
         // Update energy display
         energyDisplay.textContent = gameState.energy;
         
         // Check win/lose conditions
-        if (gameState.position === 0 && gameState.energy > 0) {
+        // Win only if we've moved and returned to start
+        if (gameState.position === 0 && gameState.energy > 0 && gameState.moves > 1) {
             gameState.gameWon = true;
-            saveScore(gameState.energy);
+            saveScore(gameState.energy, gameState.currentLevel);
+            unlockLevel(gameState.currentLevel + 1);
         } else if (gameState.energy <= 0) {
             gameState.gameOver = true;
         }
@@ -298,10 +400,7 @@ function showHint() {
 
 // Reset game
 function resetGame() {
-    gameState.energy = 100;
-    gameState.position = 0;
-    gameState.gameOver = false;
-    gameState.gameWon = false;
+    loadLevel(gameState.currentLevel);
     energyDisplay.textContent = gameState.energy;
     draw();
 }
@@ -315,7 +414,7 @@ function draw() {
     // Draw all clouds
     for (let i = 0; i < gameState.numClouds; i++) {
         const pos = getCloudPosition(i);
-        drawCloud(pos.x, pos.y, gameState.clouds[i] === 1, i);
+        drawCloud(pos.x, pos.y, gameState.clouds[i], i);
     }
     
     // Draw cat at current position
@@ -330,6 +429,15 @@ function draw() {
         ctx.fillText('You Win!', canvas.width / 2, canvas.height / 2);
         ctx.font = '24px monospace';
         ctx.fillText(`Final Luck: ${gameState.energy}`, canvas.width / 2, canvas.height / 2 + 40);
+        if (gameState.currentLevel < levels.length - 1) {
+            ctx.fillStyle = '#FFD700';
+            ctx.fillText(`"${levels[gameState.currentLevel + 1].name}" unlocked!`, canvas.width / 2, canvas.height / 2 + 70);
+            ctx.fillStyle = '#00FF00';
+            ctx.font = '18px monospace';
+            ctx.fillText('Press I to select new level', canvas.width / 2, canvas.height / 2 + 100);
+        } else {
+            ctx.fillText('All levels complete!', canvas.width / 2, canvas.height / 2 + 70);
+        }
     } else if (gameState.gameOver) {
         ctx.fillStyle = '#FF0000';
         ctx.font = 'bold 48px monospace';
@@ -339,11 +447,25 @@ function draw() {
         ctx.fillText('Out of luck!', canvas.width / 2, canvas.height / 2 + 40);
     }
     
+    // Draw level name
+    ctx.fillStyle = '#000';
+    ctx.font = '18px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(levels[gameState.currentLevel].name, canvas.width / 2, 30);
+    
     // Draw instructions
     ctx.fillStyle = '#000';
     ctx.font = '14px monospace';
     ctx.textAlign = 'left';
     ctx.fillText('Press 1-9 to jump clouds | R to reset | I for instructions', 10, canvas.height - 10);
+    
+    // Show wind boost indicator
+    if (gameState.windBoost > 0) {
+        ctx.fillStyle = '#87CEEB';
+        ctx.font = 'bold 16px monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText('Wind Boost Active! +1', canvas.width - 10, 30);
+    }
 }
 
 // Toggle menu visibility
@@ -351,7 +473,10 @@ function toggleMenu() {
     gameState.showMenu = !gameState.showMenu;
     document.getElementById('menu').style.display = gameState.showMenu ? 'block' : 'none';
     if (gameState.showMenu) {
-        updateScoreboard();
+        // Make sure level select is visible and scoreboard is hidden
+        document.getElementById('levelSelect').style.display = 'block';
+        document.getElementById('scoreboard').style.display = 'none';
+        updateLevelGrid(); // Refresh level grid to show newly unlocked levels
     } else {
         draw();
     }
@@ -372,17 +497,53 @@ function updateScoreboard() {
 }
 
 // Start game from menu
-function startGame() {
+function startGame(levelIndex) {
     gameState.showMenu = false;
     document.getElementById('menu').style.display = 'none';
-    resetGame();
+    loadLevel(levelIndex);
+    energyDisplay.textContent = gameState.energy;
+    draw();
+}
+
+// Back to level selection
+function backToLevels() {
+    document.getElementById('scoreboard').style.display = 'none';
+    document.getElementById('levelSelect').style.display = 'block';
+    updateLevelGrid();
+}
+
+// Update level grid display
+function updateLevelGrid() {
+    const grid = document.getElementById('levelGrid');
+    const unlocked = getUnlockedLevels();
+    
+    grid.innerHTML = levels.map((level, i) => {
+        const scores = JSON.parse(localStorage.getItem('catHopAllScores') || '{}')[i] || [];
+        const bestScore = scores.length > 0 ? scores[0].score : '-';
+        const isLocked = i > unlocked;
+        
+        return `<button 
+            onclick="${isLocked ? '' : `startGame(${i})`}" 
+            style="
+                padding: 10px;
+                background: ${isLocked ? '#999' : '#CC88FF'};
+                color: white;
+                border: none;
+                border-radius: 5px;
+                cursor: ${isLocked ? 'not-allowed' : 'pointer'};
+                opacity: ${isLocked ? '0.5' : '1'};
+            ">
+            <div>${level.name}</div>
+            <div style="font-size: 12px;">${isLocked ? '🔒' : `Best: ${bestScore}`}</div>
+        </button>`;
+    }).join('');
 }
 
 // Initialize
 draw();
 if (gameState.showMenu) {
     document.getElementById('menu').style.display = 'block';
-    updateScoreboard();
+    updateLevelGrid();
 }
 </script>
 </body>
