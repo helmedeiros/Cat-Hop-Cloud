@@ -109,19 +109,37 @@ canvas {
     
     <p><strong>Goal:</strong> Visit all checkpoints (!) then return to cloud 0 with luck remaining!</p>
     
+    <div id="versionInfo" style="text-align: center; margin: 15px 0; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 5px;">
+        <div style="font-weight: bold;">Cat Hop Cloud v<span id="currentVersion">2.0.0</span></div>
+        <div style="font-size: 12px;">Strategic Puzzle Mode</div>
+        <div id="versionButtons" style="margin-top: 10px;">
+            <button onclick="showVersionArchive()" style="font-size: 12px; padding: 5px 10px;">View Archive</button>
+        </div>
+    </div>
+
     <div id="levelSelect" style="margin-top: 20px;">
         <h3>Select Level</h3>
         <div id="levelGrid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 15px 0;"></div>
     </div>
     
     <div id="scoreboard" style="margin-top: 20px; display: none;">
-        <h3>Best Scores</h3>
+        <h3 id="scoreboardTitle">Best Scores</h3>
         <div id="scoreList"></div>
-        <button onclick="backToLevels()" style="margin-top: 10px;">Back to Levels</button>
+        <div style="margin-top: 10px;">
+            <button onclick="backToLevels()" style="margin-right: 10px;">Back to Levels</button>
+            <button onclick="showVersionArchive()" style="font-size: 12px;">Archive</button>
+        </div>
+    </div>
+
+    <div id="versionArchive" style="margin-top: 20px; display: none;">
+        <h3>Version Archive</h3>
+        <div id="versionList"></div>
+        <button onclick="backToLevels()" style="margin-top: 10px;">Back to Current</button>
     </div>
 </div>
 <script>
 // Game constants
+const GAME_VERSION = "2.0.0"; // Strategic Puzzle Version
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 const energyDisplay = document.getElementById('energy');
@@ -173,40 +191,99 @@ let gameState = {
     oneWayJump: 0 // Forced jump from one-way cloud
 };
 
-// Load best scores from localStorage
+// Version management
+function getCurrentVersionKey() {
+    return `catHopScores_v${GAME_VERSION}`;
+}
+
+function getAvailableVersions() {
+    return Object.keys(localStorage)
+        .filter(k => k.startsWith('catHopScores_v'))
+        .map(k => k.split('_v')[1])
+        .sort((a, b) => b.localeCompare(a, undefined, {numeric: true})); // Newest first
+}
+
+function migrateOldScores() {
+    // Check for old scores without version
+    const oldAllScores = localStorage.getItem('catHopAllScores');
+    const oldUnlocked = localStorage.getItem('catHopUnlocked');
+    
+    if (oldAllScores && !localStorage.getItem('catHopScores_v1.2.0')) {
+        // Migrate to v1.2.0 (last simple version)
+        const migrationData = {
+            version: "1.2.0",
+            releaseDate: new Date().toISOString().split('T')[0],
+            gameMode: "Simple Mode",
+            levels: JSON.parse(oldAllScores),
+            unlocked: parseInt(oldUnlocked || '0'),
+            archived: true
+        };
+        localStorage.setItem('catHopScores_v1.2.0', JSON.stringify(migrationData));
+        
+        // Clean up old format
+        localStorage.removeItem('catHopAllScores');
+        localStorage.removeItem('catHopScores'); // Also remove this if it exists
+    }
+}
+
+// Load scores for current version
 function loadScores() {
-    const saved = localStorage.getItem('catHopScores');
-    return saved ? JSON.parse(saved) : [];
+    migrateOldScores(); // Auto-migrate on load
+    
+    const currentData = localStorage.getItem(getCurrentVersionKey());
+    if (currentData) {
+        return JSON.parse(currentData);
+    }
+    
+    // Initialize new version data
+    const newVersionData = {
+        version: GAME_VERSION,
+        releaseDate: new Date().toISOString().split('T')[0],
+        gameMode: "Strategic Puzzle Mode",
+        levels: {},
+        unlocked: 0
+    };
+    localStorage.setItem(getCurrentVersionKey(), JSON.stringify(newVersionData));
+    return newVersionData;
 }
 
 // Save score for specific level
 function saveScore(score, level) {
-    let allScores = JSON.parse(localStorage.getItem('catHopAllScores') || '{}');
-    if (!allScores[level]) allScores[level] = [];
+    const versionData = loadScores();
     
-    allScores[level].push({
+    if (!versionData.levels[level]) {
+        versionData.levels[level] = [];
+    }
+    
+    versionData.levels[level].push({
         score: score,
-        date: new Date().toLocaleDateString()
+        date: new Date().toLocaleDateString(),
+        turns: gameState.turnCounter,
+        version: GAME_VERSION
     });
     
     // Keep only top 3 scores per level
-    allScores[level].sort((a, b) => b.score - a.score);
-    allScores[level] = allScores[level].slice(0, 3);
+    versionData.levels[level].sort((a, b) => b.score - a.score);
+    versionData.levels[level] = versionData.levels[level].slice(0, 3);
     
-    localStorage.setItem('catHopAllScores', JSON.stringify(allScores));
-    return allScores[level];
+    localStorage.setItem(getCurrentVersionKey(), JSON.stringify(versionData));
+    return versionData.levels[level];
 }
 
-// Get unlocked levels
+// Get unlocked levels for current version
 function getUnlockedLevels() {
-    return parseInt(localStorage.getItem('catHopUnlocked') || '0');
+    const versionData = loadScores();
+    return versionData.unlocked || 0;
 }
 
-// Unlock next level
+// Unlock next level for current version
 function unlockLevel(level) {
-    const current = getUnlockedLevels();
+    const versionData = loadScores();
+    const current = versionData.unlocked || 0;
+    
     if (level > current) {
-        localStorage.setItem('catHopUnlocked', level.toString());
+        versionData.unlocked = level;
+        localStorage.setItem(getCurrentVersionKey(), JSON.stringify(versionData));
     }
 }
 
@@ -586,18 +663,82 @@ function startGame(levelIndex) {
 // Back to level selection
 function backToLevels() {
     document.getElementById('scoreboard').style.display = 'none';
+    document.getElementById('versionArchive').style.display = 'none';
     document.getElementById('levelSelect').style.display = 'block';
+    document.getElementById('scoreboardTitle').textContent = 'Best Scores'; // Reset title
     updateLevelGrid();
+}
+
+// Show version archive
+function showVersionArchive() {
+    document.getElementById('levelSelect').style.display = 'none';
+    document.getElementById('scoreboard').style.display = 'none';
+    document.getElementById('versionArchive').style.display = 'block';
+    
+    const versions = getAvailableVersions();
+    const versionList = document.getElementById('versionList');
+    
+    if (versions.length <= 1) {
+        versionList.innerHTML = '<p style="color: #888;">No archived versions yet.</p>';
+        return;
+    }
+    
+    versionList.innerHTML = versions.map(version => {
+        const versionKey = `catHopScores_v${version}`;
+        const versionData = JSON.parse(localStorage.getItem(versionKey) || '{}');
+        const isCurrent = version === GAME_VERSION;
+        
+        return `<div style="margin: 10px 0; padding: 15px; background: ${isCurrent ? 'rgba(168, 230, 207, 0.3)' : 'rgba(0,0,0,0.1)'}; border-radius: 5px;">
+            <div style="font-weight: bold;">
+                v${version} ${isCurrent ? '(Current)' : ''}
+                <span style="float: right; font-size: 12px;">${versionData.releaseDate || 'Unknown'}</span>
+            </div>
+            <div style="font-size: 14px; color: #666;">${versionData.gameMode || 'Unknown Mode'}</div>
+            <div style="margin-top: 5px;">
+                ${!isCurrent ? `<button onclick="viewVersionScores('${version}')" style="font-size: 12px; padding: 5px 10px;">View Scores</button>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// View scores for specific version
+function viewVersionScores(version) {
+    const versionKey = `catHopScores_v${version}`;
+    const versionData = JSON.parse(localStorage.getItem(versionKey) || '{}');
+    
+    document.getElementById('versionArchive').style.display = 'none';
+    document.getElementById('scoreboard').style.display = 'block';
+    document.getElementById('scoreboardTitle').textContent = `v${version} - ${versionData.gameMode || 'Archived Scores'}`;
+    
+    const scoreList = document.getElementById('scoreList');
+    const levels = versionData.levels || {};
+    
+    if (Object.keys(levels).length === 0) {
+        scoreList.innerHTML = '<p style="color: #888;">No scores recorded for this version.</p>';
+        return;
+    }
+    
+    scoreList.innerHTML = Object.entries(levels).map(([levelIndex, scores]) => {
+        const levelName = `Level ${parseInt(levelIndex) + 1}`;
+        const topScore = scores[0];
+        
+        return `<div style="margin: 10px 0; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 5px;">
+            <div style="font-weight: bold;">${levelName}</div>
+            <div style="font-size: 14px;">Best: ${topScore.score} ${topScore.turns ? `(${topScore.turns} turns)` : ''} - ${topScore.date}</div>
+        </div>`;
+    }).join('');
 }
 
 // Update level grid display
 function updateLevelGrid() {
     const grid = document.getElementById('levelGrid');
     const unlocked = getUnlockedLevels();
+    const versionData = loadScores();
     
     grid.innerHTML = levels.map((level, i) => {
-        const scores = JSON.parse(localStorage.getItem('catHopAllScores') || '{}')[i] || [];
-        const bestScore = scores.length > 0 ? scores[0].score : '-';
+        const levelScores = versionData.levels[i] || [];
+        const bestScore = levelScores.length > 0 ? levelScores[0].score : '-';
+        const bestTurns = levelScores.length > 0 ? levelScores[0].turns : '';
         const isLocked = i > unlocked;
         
         return `<button 
@@ -612,7 +753,7 @@ function updateLevelGrid() {
                 opacity: ${isLocked ? '0.5' : '1'};
             ">
             <div>${level.name}</div>
-            <div style="font-size: 12px;">${isLocked ? '🔒' : `Best: ${bestScore}`}</div>
+            <div style="font-size: 12px;">${isLocked ? '🔒' : `Best: ${bestScore}${bestTurns ? ` (${bestTurns}t)` : ''}`}</div>
         </button>`;
     }).join('');
 }
