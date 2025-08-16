@@ -23,11 +23,82 @@ canvas {
     font-size: 18px;
     text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
 }
+#menu {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(255, 255, 255, 0.95);
+    padding: 30px;
+    border-radius: 10px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    text-align: center;
+    max-width: 400px;
+}
+#menu h2 {
+    margin-top: 0;
+    color: #333;
+}
+#menu p {
+    margin: 10px 0;
+    color: #555;
+    line-height: 1.6;
+}
+#menu button {
+    background: #CC88FF;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    font-size: 18px;
+    border-radius: 5px;
+    cursor: pointer;
+    margin-top: 10px;
+    font-family: monospace;
+}
+#menu button:hover {
+    background: #AA66DD;
+}
+.cloud-info {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    margin: 15px 0;
+}
+.cloud-example {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
 </style>
 </head>
 <body>
 <div id="info">Luck: <span id="energy">100</span></div>
 <canvas id="c"></canvas>
+<div id="menu">
+    <h2>Cat Hop Cloud</h2>
+    <p><strong>Help your cat return home!</strong></p>
+    <p>Your black cat is lost in the clouds and needs to use its luck energy to hop back to cloud 0.</p>
+    
+    <div class="cloud-info">
+        <div class="cloud-example">
+            <span style="color: #CC88FF;">●</span> Safe clouds
+        </div>
+        <div class="cloud-example">
+            <span style="color: #FF4444;">●</span> Thunder clouds (-2 luck)
+        </div>
+    </div>
+    
+    <p><strong>Controls:</strong></p>
+    <p>🎮 Press 1-9 to jump that many clouds forward<br>
+    Each jump costs luck equal to the distance<br>
+    📍 Press R to reset the game<br>
+    💡 Press I to toggle instructions</p>
+    
+    <p><strong>Goal:</strong> Return to cloud 0 with luck remaining!</p>
+    
+    <button onclick="startGame()">Start Game</button>
+</div>
 <script>
 // Game constants
 const canvas = document.getElementById('c');
@@ -45,7 +116,8 @@ let gameState = {
     clouds: [0, 0, 1, 0, 1, 1, 0, 0], // 0 = safe, 1 = thundercloud
     numClouds: 8,
     gameOver: false,
-    gameWon: false
+    gameWon: false,
+    showMenu: true
 };
 
 // Cloud positions (circular arrangement)
@@ -170,18 +242,24 @@ function jump(k) {
 document.addEventListener('keydown', (e) => {
     const key = e.key;
     
+    // Don't process game controls if menu is showing
+    if (gameState.showMenu && key.toLowerCase() !== 'i') return;
+    
     // Number keys for jumping
     if (key >= '1' && key <= '9') {
         jump(parseInt(key));
     }
     
-    // Vim-style controls
-    switch(key) {
-        case 'h': // Hint - show optimal path
-            showHint();
+    // Other controls
+    switch(key.toLowerCase()) {
+        case 'i': // Toggle instructions
+            toggleMenu();
             break;
         case 'r': // Reset game
             resetGame();
+            break;
+        case 'h': // Hint - show optimal path
+            showHint();
             break;
     }
 });
@@ -239,11 +317,30 @@ function draw() {
     ctx.fillStyle = '#000';
     ctx.font = '14px monospace';
     ctx.textAlign = 'left';
-    ctx.fillText('Press 1-9 to jump clouds | R to reset', 10, canvas.height - 10);
+    ctx.fillText('Press 1-9 to jump clouds | R to reset | I for instructions', 10, canvas.height - 10);
 }
 
-// Start game
+// Toggle menu visibility
+function toggleMenu() {
+    gameState.showMenu = !gameState.showMenu;
+    document.getElementById('menu').style.display = gameState.showMenu ? 'block' : 'none';
+    if (!gameState.showMenu) {
+        draw();
+    }
+}
+
+// Start game from menu
+function startGame() {
+    gameState.showMenu = false;
+    document.getElementById('menu').style.display = 'none';
+    resetGame();
+}
+
+// Initialize
 draw();
+if (gameState.showMenu) {
+    document.getElementById('menu').style.display = 'block';
+}
 </script>
 </body>
 </html>
